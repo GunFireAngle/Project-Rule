@@ -13,6 +13,25 @@ namespace RuleGame.Core.Rules
     public abstract class AttributeRuleBase
     {
         // ------------------------------------------------------------------
+        //  依赖：属性管理器
+        // ------------------------------------------------------------------
+
+        private IAttributeManager _attributes;
+
+        /// <summary>
+        /// 属性管理器：没有引擎全局载体的属性（摩擦 / 质量 / 伤害 / 关系 / 因果）写到这里。
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ 接口文档 v3.0 §2.3 的基类没有这个入口，但规则类要落地「写属性管理器」（见 §4.5）
+        /// 就必须拿到它。采用「由 <c>RuleSystem</c> 创建后注入」而非让规则类自己取单例，
+        /// 是为了保持规则类可单独测试。<b>待团队确认后并入冻结文档。</b>
+        /// </remarks>
+        protected IAttributeManager Attributes => _attributes;
+
+        /// <summary>由 <c>RuleSystem</c> 在创建规则类后注入依赖。子类无需覆写。</summary>
+        internal void Bind(IAttributeManager attributes) => _attributes = attributes;
+
+        // ------------------------------------------------------------------
         //  五种关系算法
         //  未定义的格位直接 return false（会被 RuleSystem 记为 Undefined）
         // ------------------------------------------------------------------

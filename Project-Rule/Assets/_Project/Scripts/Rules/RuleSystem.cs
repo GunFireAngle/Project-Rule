@@ -53,7 +53,15 @@ namespace RuleGame.Core.Rules
 
             // 7 个属性各注册一个规则类。
             // 未实现的先不注册 —— Request 会因为没有规则类而返回 Undefined。
-            _rules[AttributeId.Gravity] = new GravityRule();
+            Register(AttributeId.Gravity, new GravityRule());
+            Register(AttributeId.Damage,  new DamageRule());
+        }
+
+        /// <summary>注册一个属性规则类，并把属性管理器注入给它。</summary>
+        private void Register(AttributeId attr, AttributeRuleBase rule)
+        {
+            rule.Bind(_attrs);
+            _rules[attr] = rule;
         }
 
         // ==================================================================
