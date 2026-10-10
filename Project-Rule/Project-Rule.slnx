@@ -1,0 +1,8 @@
+﻿<Solution>
+  <Project Path="RuleGame.Core.csproj" />
+  <Project Path="RuleGame.Infrastructure.csproj" />
+  <Project Path="RuleGame.Development.csproj" />
+  <Project Path="RuleGame.UI.csproj" />
+  <Project Path="RuleGame.Editor.csproj" />
+  <Project Path="RuleGame.Gameplay.csproj" />
+</Solution>
