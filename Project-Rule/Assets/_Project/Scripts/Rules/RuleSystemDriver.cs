@@ -1,4 +1,5 @@
 using UnityEngine;
+using RuleGame.Infrastructure.Common;
 
 namespace RuleGame.Core.Rules
 {
@@ -17,6 +18,9 @@ namespace RuleGame.Core.Rules
 
         private void Awake()
         {
+            // 对象注册表先起来：实体在 OnEnable 里会来找它。
+            WorldRegistry.Initialize();
+
             if (_catalog == null)
             {
                 Debug.LogError("[RuleSystemDriver] 没有指定 RuleCatalog，规则系统无法初始化。", this);
@@ -27,7 +31,9 @@ namespace RuleGame.Core.Rules
 
         private void Update()
         {
-            // 用 deltaTime：暂停时自动冻结
+            // ⚠️ TODO(P1)：暂停用的是 Physics2D.simulationMode = Script（策划案 §3.1
+            // 禁止 Time.timeScale = 0），但 Time.deltaTime 在暂停期间照常走，
+            // 规则时长会在暂停时被扣掉。等 ITimeManager 落地后改用它的 delta。
             RuleSystem.Instance?.Tick(Time.deltaTime);
         }
 
@@ -35,6 +41,7 @@ namespace RuleGame.Core.Rules
         {
             // 让下次进 Play / 切场景重新初始化
             RuleSystem.Reset();
+            WorldRegistry.Reset();
         }
     }
 }

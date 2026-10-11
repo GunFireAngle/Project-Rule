@@ -13,7 +13,9 @@ namespace RuleGame.Infrastructure.Rules
         AttributeValues Values { get; }
 
         void SetFrictionScale(float v);
+        void SetFrictionInverted(bool v);
         void SetMassScale(float v);
+        void SetMassInverted(bool v);
         void SetDamageScale(float v);
         void SetDamageInverted(bool v);
         void SetDamageDisabled(bool v);

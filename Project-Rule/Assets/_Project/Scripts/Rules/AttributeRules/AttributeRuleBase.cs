@@ -9,12 +9,27 @@ namespace RuleGame.Core.Rules
     /// <para>基类**不设 AttributeId 属性** —— 类名本身就是标识。</para>
     /// <para>基类**不接收 RuleDef** —— 只接收关系枚举。</para>
     /// <para>基类**不持有计时器** —— 剩余时间由规则维护表持有。</para>
+    /// <para>基类**持有 <see cref="IAttributeManager"/>** —— 没有引擎全局载体的属性
+    /// （摩擦 / 质量 / 伤害）必须通过它写值。有全局载体的（重力 / 时间）拿到也不用。</para>
     /// </remarks>
     public abstract class AttributeRuleBase
     {
+        /// <summary>属性管理器。规则类通过它写属性值。</summary>
+        protected IAttributeManager Attributes { get; }
+
+        /// <param name="attributes">由 <c>RuleSystem</c> 注入，与它自己用的是同一个实例。</param>
+        protected AttributeRuleBase(IAttributeManager attributes)
+        {
+            Attributes = attributes ?? throw new System.ArgumentNullException(nameof(attributes));
+        }
+
         // ------------------------------------------------------------------
         //  五种关系算法
-        //  未定义的格位直接 return false（会被 RuleSystem 记为 Undefined）
+        //
+        //  返回 false = 「这个格位存在，但算法跑不通」→ RuleRequestStatus.NoResource。
+        //
+        //  ⚠️ 「格位在矩阵里不存在」是**另一回事**，由 IRuleCatalog.Get 返回 null 决定，
+        //  RuleSystem 在那一步就会返回 Undefined，根本走不到规则类。
         // ------------------------------------------------------------------
 
         protected abstract bool OnRevert();

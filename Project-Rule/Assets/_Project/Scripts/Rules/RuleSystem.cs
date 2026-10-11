@@ -53,7 +53,9 @@ namespace RuleGame.Core.Rules
 
             // 6 个属性各注册一个规则类。
             // 未实现的先不注册 —— Request 会因为没有规则类而返回 Undefined。
-            _rules[AttributeId.Gravity] = new GravityRule();
+            _rules[AttributeId.Gravity]  = new GravityRule(_attrs);
+            _rules[AttributeId.Friction] = new FrictionRule(_attrs);
+            _rules[AttributeId.Mass]     = new MassRule(_attrs);
         }
 
         // ==================================================================
