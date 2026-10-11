@@ -51,11 +51,12 @@ namespace RuleGame.Core.Rules
         {
             _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
 
-            // 6 个属性各注册一个规则类。
+            // 6 个属性各注册一个规则类，属性管理器走**构造函数注入**（决策 2026-10-12）。
             // 未实现的先不注册 —— Request 会因为没有规则类而返回 Undefined。
             _rules[AttributeId.Gravity]  = new GravityRule(_attrs);
             _rules[AttributeId.Friction] = new FrictionRule(_attrs);
             _rules[AttributeId.Mass]     = new MassRule(_attrs);
+            _rules[AttributeId.Damage]   = new DamageRule(_attrs);
         }
 
         // ==================================================================

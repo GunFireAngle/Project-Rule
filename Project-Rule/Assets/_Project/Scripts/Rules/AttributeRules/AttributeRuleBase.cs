@@ -15,6 +15,11 @@ namespace RuleGame.Core.Rules
     public abstract class AttributeRuleBase
     {
         /// <summary>属性管理器。规则类通过它写属性值。</summary>
+        /// <remarks>
+        /// 🔒 <b>构造函数注入（决策 2026-10-12）</b>：曾有一版用 <c>Bind()</c> 事后注入，
+        /// 已废弃 —— 构造函数注入让「忘了注入」变成编译错误，而不是运行时 NRE。
+        /// 子类必须写一行转发构造，用不到属性管理器的（重力）也照写。
+        /// </remarks>
         protected IAttributeManager Attributes { get; }
 
         /// <param name="attributes">由 <c>RuleSystem</c> 注入，与它自己用的是同一个实例。</param>

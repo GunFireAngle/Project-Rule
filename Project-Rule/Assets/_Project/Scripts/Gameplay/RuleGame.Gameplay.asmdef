@@ -3,7 +3,8 @@
     "rootNamespace": "RuleGame.Gameplay",
     "references": [
         "RuleGame.Core",
-        "RuleGame.Infrastructure"
+        "RuleGame.Infrastructure",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

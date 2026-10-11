@@ -16,6 +16,19 @@ namespace RuleGame.Core.Rules
         [Tooltip("规则目录资产，放在 Assets/_Project/Data/Rules/")]
         [SerializeField] private RuleCatalog _catalog;
 
+        /// <summary>暂停中。规则倒计时与行为型规则都不前进。</summary>
+        /// <remarks>
+        /// <para>⚠️ 暂停**不能**用 <c>Time.timeScale = 0</c>（策划案 §3.1），所以 <c>Time.deltaTime</c>
+        /// 在暂停期间照常流逝 —— 只能靠这个显式闸门冻结。由暂停的持有者（P1 的时间管理器）调用。</para>
+        /// <para>🔻 <b>过渡期闸门（决策 2026-10-12）</b>：暂停的最终形态是让本组件改读
+        /// <c>ITimeManager.DeltaTime</c>（暂停时返回 0），届时这个布尔量应当**删掉**，
+        /// 让「暂停」只存在一份真相。P1 的 <c>ITimeManager</c> 落地前先留着它。</para>
+        /// </remarks>
+        public bool IsPaused { get; private set; }
+
+        /// <summary>设置暂停状态。与 <c>EntityStatus.SetPaused</c> 同一套约定。</summary>
+        public void SetPaused(bool paused) => IsPaused = paused;
+
         private void Awake()
         {
             // 对象注册表先起来：实体在 OnEnable 里会来找它。
@@ -31,9 +44,11 @@ namespace RuleGame.Core.Rules
 
         private void Update()
         {
-            // ⚠️ TODO(P1)：暂停用的是 Physics2D.simulationMode = Script（策划案 §3.1
-            // 禁止 Time.timeScale = 0），但 Time.deltaTime 在暂停期间照常走，
-            // 规则时长会在暂停时被扣掉。等 ITimeManager 落地后改用它的 delta。
+            // 暂停由两层组成，缺一不可：
+            //   ① 物理层：Physics2D.simulationMode = Script（策划案 §3.1 禁止 Time.timeScale = 0）
+            //   ② 时钟层：下面这个闸门，挡住 Time.deltaTime 在暂停期间照常推进导致的规则时限流失
+            // TODO(P1)：ITimeManager 落地后改读它的 delta，并删掉 IsPaused（见属性注释）。
+            if (IsPaused) return;
             RuleSystem.Instance?.Tick(Time.deltaTime);
         }
 
