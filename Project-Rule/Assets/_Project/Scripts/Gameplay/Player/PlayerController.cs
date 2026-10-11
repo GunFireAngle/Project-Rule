@@ -32,12 +32,45 @@ namespace RuleGame.Gameplay.Player
         [SerializeField] private InputActionAsset _inputActions;
 
         [Header("移动")]
-        [SerializeField] private float _moveSpeed    = 8f;
-        [SerializeField] private float _jumpSpeed    = 14f;
-        [SerializeField] private float _gravityScale = 1f;
+        [Tooltip("水平最大速度。按住方向键时速度会朝这个值加速（不是瞬间到）。")]
+        [SerializeField] private float _moveSpeedMax = 8f;
 
-        [Tooltip("无输入时的水平减速度；会被 FrictionScale 缩放（摩擦失效 ≈ 冰面）。")]
+        [Tooltip("地面水平加速度。到全速的时间 ≈ 最大速度 / 本值（200 → 约 0.04 秒，近乎瞬时）。")]
+        [SerializeField] private float _groundAccel = 200f;
+
+        [Tooltip("起跳速度。跳跃高度 = 本值² / (2 × 有效上升重力)。")]
+        [SerializeField] private float _jumpSpeed    = 13.6f;
+
+        [Tooltip("玩家自身的重力倍率（在规则改过的全局重力之上再乘一次）。" +
+                 "它与跳跃速度共同决定「跳跃高度」和「上升用时」：高度 = v²/(2g)，用时 = v/g。" +
+                 "想更快就同时加大两者（高度不变、时间变短）。")]
+        [SerializeField] private float _gravityScale = 3.83f;
+
+        [Tooltip("下落时的额外重力倍率 —— 落得比升得快，滞空更紧凑。1 = 上下对称。")]
+        [SerializeField, Range(1f, 4f)] private float _fallGravityMultiplier = 2f;
+
+        [Tooltip("下落速度上限（终端速度）。防止长距离下落越来越快、难以阅读。")]
+        [SerializeField] private float _maxFallSpeed = 30f;
+
+        [Tooltip("地面减速度基准。实际减速度 = 本值 × 脚下地面材质的摩擦系数 × 摩擦规则缩放。" +
+                 "所以「冰面」= 给地面挂一个摩擦很小的 PhysicsMaterial2D。")]
         [SerializeField] private float _frictionDecel = 40f;
+
+        [Tooltip("空中水平加速度：能左右改向，但不瞬移。0 = 空中完全锁死横向速度；" +
+                 "调到 1000 左右约等于「空中和地面一样跟手」。")]
+        [SerializeField] private float _airAccel = 40f;
+
+        [Tooltip("空中无输入时的水平阻力。0 = 空中完整保持动量；调大就是空中能急停。")]
+        [SerializeField] private float _airDrag = 3f;
+
+        [Tooltip("松开跳跃键时向上速度保留的比例 —— 可变跳跃高度。1 = 按固定高度跳。")]
+        [SerializeField, Range(0.1f, 1f)] private float _jumpCutMultiplier = 0.45f;
+
+        [Tooltip("土狼时间：走出平台边缘后仍可起跳的宽限秒数。")]
+        [SerializeField] private float _coyoteTime = 0.1f;
+
+        [Tooltip("跳跃缓冲：落地之前提前按下的跳跃仍然生效的秒数。")]
+        [SerializeField] private float _jumpBuffer = 0.12f;
 
         [Header("碰撞")]
         [Tooltip("阻挡移动、并用于接地判定的层。地形与墙体都放这里。")]
@@ -85,7 +118,11 @@ namespace RuleGame.Gameplay.Player
         private Vector2 _moveInput;
         private Vector2 _up = Vector2.up;   // 当前「上」方向 = 重力反方向
         private bool    _jumpQueued;
+        private bool    _jumpCutQueued;
         private bool    _grounded;
+        private float   _groundFriction = 1f;   // 脚下这块地的摩擦系数（来自它的 PhysicsMaterial2D）
+        private float   _coyoteLeft;
+        private float   _bufferLeft;
         private float   _facing = 1f;
         private float   _nextAttackTime;
 
@@ -154,6 +191,7 @@ namespace RuleGame.Gameplay.Player
             {
                 _moveInput = Vector2.zero;
                 _jumpQueued = false;
+                _jumpCutQueued = false;
                 return;
             }
 
@@ -161,6 +199,9 @@ namespace RuleGame.Gameplay.Player
 
             if (_jumpAction != null && _jumpAction.WasPressedThisFrame())
                 _jumpQueued = true;
+
+            if (_jumpAction != null && _jumpAction.WasReleasedThisFrame())
+                _jumpCutQueued = true;      // 可变跳跃高度：松键那一刻削速
 
             if (_attackAction != null && _attackAction.WasPressedThisFrame())
                 DoAttack();
@@ -184,42 +225,86 @@ namespace RuleGame.Gameplay.Player
             float dt = Time.fixedDeltaTime;
             UpdateUp();
 
-            // ① 重力：自己积分（要的是加速度，所以累加，不交给 SlideMovement.gravity）
-            _velocity += Physics2D.gravity * _gravityScale * dt;
+            // ① 接地：查询刚体自身的全部碰撞体，不需要额外的地面检测子物体。
+            //    放在移动之前，本帧的水平处理才能用到最新的接地状态。
+            _grounded = ProbeGround();
 
-            // ② 水平：有输入直接给速度，无输入按摩擦力减速
-            if (Mathf.Abs(_moveInput.x) > 0.01f)
+            // ② 重力：自己积分（要的是加速度，所以累加，不交给 SlideMovement.gravity）。
+            //    下落时再乘一次 _fallGravityMultiplier —— 落得比升得快，滞空更紧凑。
+            bool falling = Vector2.Dot(_velocity, _up) < 0f;
+            _velocity += Physics2D.gravity * (_gravityScale * (falling ? _fallGravityMultiplier : 1f)) * dt;
+
+            // 下落速度上限（终端速度）：长距离下落不会一路加速，读起来更稳
+            float alongUp = Vector2.Dot(_velocity, _up);
+            if (alongUp < -_maxFallSpeed)
+                _velocity -= _up * (alongUp + _maxFallSpeed);
+
+            // ③ 水平：按住方向时朝最大速度「加速」（不是瞬间给速度）
+            if (_grounded)
             {
-                _velocity.x = _moveInput.x * _moveSpeed;
+                if (Mathf.Abs(_moveInput.x) > 0.01f)
+                {
+                    _facing = Mathf.Sign(_moveInput.x);
+                    _velocity.x = Mathf.MoveTowards(_velocity.x, _moveInput.x * _moveSpeedMax, _groundAccel * dt);
+                }
+                else
+                {
+                    // 减速度 = 基准 × 脚下地面材质的摩擦 × 摩擦规则缩放。
+                    // 两者相乘：地形可以做成冰面，规则也能把整个世界变成冰面。
+                    float friction = _groundFriction * FrictionScale;
+                    _velocity.x = Mathf.MoveTowards(_velocity.x, 0f, _frictionDecel * friction * dt);
+                }
+            }
+            else if (Mathf.Abs(_moveInput.x) > 0.01f)
+            {
                 _facing = Mathf.Sign(_moveInput.x);
+                _velocity.x = Mathf.MoveTowards(_velocity.x, _moveInput.x * _moveSpeedMax, _airAccel * dt);
             }
             else
             {
-                float friction = Mathf.Max(0.01f, FrictionScale);   // 0 = 无摩擦
-                _velocity.x = Mathf.MoveTowards(_velocity.x, 0f, _frictionDecel * friction * dt);
+                _velocity.x = Mathf.MoveTowards(_velocity.x, 0f, _airDrag * dt);
             }
-
-            // ③ 接地：查询刚体自身的全部碰撞体，不需要额外的地面检测子物体
-            _grounded = ProbeGround();
 
             // ④ 贴地时抵消朝地面累积的速度
             if (_grounded && Vector2.Dot(_velocity, _up) < 0f)
                 _velocity -= _up * Vector2.Dot(_velocity, _up);
 
-            // ⑤ 跳跃
+            // ⑤ 跳跃：土狼时间（离地后还有一小段宽限）+ 输入缓冲（落地前提前按也算数）
+            if (_grounded) _coyoteLeft = _coyoteTime;
+            else           _coyoteLeft -= dt;
+
             if (_jumpQueued)
             {
-                if (_grounded) _velocity = SetAlong(_velocity, _up, _jumpSpeed);
+                _bufferLeft = _jumpBuffer;
                 _jumpQueued = false;
             }
+            else if (_bufferLeft > 0f)
+            {
+                _bufferLeft -= dt;
+            }
 
-            // ⑥ 击退：外部速度独立衰减
+            if (_bufferLeft > 0f && _coyoteLeft > 0f)
+            {
+                _velocity = SetAlong(_velocity, _up, _jumpSpeed);
+                _bufferLeft = 0f;      // 一次输入只跳一次，也别想二段跳
+                _coyoteLeft = 0f;
+            }
+
+            // ⑥ 可变跳跃高度：提前松键就把上升速度削掉，跳得矮一些
+            if (_jumpCutQueued)
+            {
+                float along = Vector2.Dot(_velocity, _up);
+                if (along > 0f) _velocity = SetAlong(_velocity, _up, along * _jumpCutMultiplier);
+                _jumpCutQueued = false;
+            }
+
+            // ⑦ 击退：外部速度独立衰减
             _externalVelocity = Vector2.MoveTowards(_externalVelocity, Vector2.zero, _knockbackDecay * dt);
 
-            // ⑦ 位移交给 Slide 解算接触（Kinematic 的 MovePosition 自己不处理碰撞）
+            // ⑧ 位移交给 Slide 解算接触（Kinematic 的 MovePosition 自己不处理碰撞）
             var result = _rb.Slide(_velocity + _externalVelocity, dt, BuildSlideMovement());
 
-            // ⑧ 撞墙 / 撞顶：Slide 把用不掉的速度还回来，清掉对应分量，避免贴着墙持续挤压
+            // ⑨ 撞墙 / 撞顶：Slide 把用不掉的速度还回来，清掉对应分量，避免贴着墙持续挤压
             if (Mathf.Abs(result.remainingVelocity.x) > 0.001f) _velocity.x = 0f;
             if (Mathf.Abs(result.remainingVelocity.y) > 0.001f) _velocity.y = 0f;
         }
@@ -246,8 +331,11 @@ namespace RuleGame.Gameplay.Player
         }
 
         /// <summary>沿当前「上」方向的反向做一次碰撞体扫描，看脚下有没有支撑面。</summary>
+        /// <remarks>顺带记住脚下这块地的摩擦系数（<see cref="_groundFriction"/>），供减速使用。</remarks>
         private bool ProbeGround()
         {
+            _groundFriction = 1f;      // 没探到面、或那块地没挂材质 → 按普通地面算
+
             var filter = new ContactFilter2D { useTriggers = false };
             filter.SetLayerMask(_solidLayer);
 
@@ -255,7 +343,13 @@ namespace RuleGame.Gameplay.Player
             for (int i = 0; i < count; i++)
             {
                 // 只有法线朝着「上」的接触才算支撑面；墙面法线是水平的，会被排除。
-                if (Vector2.Dot(_groundHits[i].normal, _up) > 0.5f) return true;
+                if (Vector2.Dot(_groundHits[i].normal, _up) <= 0.5f) continue;
+
+                // 地形用 PhysicsMaterial2D 表达材质：冰面给个小的 friction 即可。
+                var material = _groundHits[i].collider.sharedMaterial;
+                if (material != null) _groundFriction = material.friction;
+
+                return true;
             }
             return false;
         }
