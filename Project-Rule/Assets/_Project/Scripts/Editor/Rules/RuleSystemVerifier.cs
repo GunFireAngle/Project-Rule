@@ -1,0 +1,173 @@
+using System.Collections.Generic;
+using UnityEngine;
+using RuleGame.Core.Rules;
+using RuleGame.Infrastructure.Common;
+using RuleGame.Infrastructure.Rules;
+
+namespace RuleGame.Editor.Rules
+{
+    /// <summary>
+    /// 规则系统自身契约的验证器：覆盖清理、失败回滚、<c>OnRuleExpired</c> 触发范围。
+    /// </summary>
+    /// <remarks>
+    /// <para>它用 <c>RuleSystem.SetRuleForTesting</c> 把质量槽位换成一个**探针规则**，
+    /// 因为真实规则每次 <c>Request</c> 都会写全自己的字段，覆盖时到底有没有调
+    /// 旧规则的 <c>Clear()</c> 从属性值上看不出来。</para>
+    /// <para>⚠️ 必须在 <b>Play 模式</b>下调用（与其它验证器一致）。</para>
+    /// </remarks>
+    public static class RuleSystemVerifier
+    {
+        private const float Tol = RuleVerifyHarness.Tolerance;
+
+        /// <summary>探针规则：只记录被调了什么，不真的改世界。</summary>
+        private sealed class ProbeRule : AttributeRuleBase
+        {
+            /// <summary><c>Clear()</c> 被调了几次。</summary>
+            public int ClearCount;
+
+            /// <summary><c>Request</c> 进来几次（含失败的那次）。</summary>
+            public int ApplyCount;
+
+            /// <summary>最后一次进来的关系。</summary>
+            public RelationId LastApplied;
+
+            /// <summary>置 true 后，下一次 <c>Request</c> 必定失败。</summary>
+            public bool FailNext;
+
+            public ProbeRule(IAttributeManager attributes) : base(attributes) { }
+
+            protected override bool OnRevert() => Apply(RelationId.Revert);
+            protected override bool OnNullify() => Apply(RelationId.Nullify);
+            protected override bool OnConstant() => Apply(RelationId.Constant);
+            protected override bool OnEnhance() => Apply(RelationId.Enhance);
+            protected override bool OnWeaken() => Apply(RelationId.Weaken);
+
+            public override void Clear() => ClearCount++;
+
+            private bool Apply(RelationId rel)
+            {
+                ApplyCount++;
+                LastApplied = rel;      // 先记下来，失败那次也算「进来过」
+                if (FailNext) { FailNext = false; return false; }
+                return true;
+            }
+        }
+
+        public static string Run()
+        {
+            var h = new RuleVerifyHarness();
+            RuleDef[] defs = RuleVerifyHarness.MakeDefs(AttributeId.Mass, 10f);
+
+            WorldRegistry.Initialize();
+            RuleSystem.Initialize(new RuleVerifyHarness.TestCatalog(defs));
+            RuleSystem sys = RuleSystem.Instance;
+            if (sys == null) return "✗ RuleSystem 初始化失败";
+
+            var probe = new ProbeRule(sys.Attributes);
+            sys.SetRuleForTesting(AttributeId.Mass, probe);
+
+            var expired = new List<AttributeId>();
+            int activated = 0;
+            int changed = 0;
+            sys.OnRuleExpired += a => expired.Add(a);
+            sys.OnRuleActivated += (a, r, s) => activated++;
+            sys.OnRulesChanged += () => changed++;
+
+            // ==============================================================
+            //  ① 首次请求：该属性本来没规则，不该调 Clear()
+            // ==============================================================
+            h.Section("1 首次请求（无旧规则）");
+
+            RuleRequestResult r1 = sys.Request(AttributeId.Mass, RelationId.Enhance, RuleSource.Player);
+            h.Check("请求成功", r1.Succeeded, r1.Status.ToString());
+            h.Check("不调旧规则的 Clear()", probe.ClearCount == 0, $"ClearCount={probe.ClearCount}");
+            h.Check("不触发 OnRuleExpired", expired.Count == 0, $"expired={expired.Count}");
+            h.Check("槽位 = Enhance",
+                    sys.Table.IsActive(AttributeId.Mass, RelationId.Enhance), SlotText(sys));
+            h.Check("OnRuleActivated 触发一次", activated == 1, $"activated={activated}");
+
+            // ==============================================================
+            //  ② 覆盖槽位：必须调旧规则的 Clear() 并广播 OnRuleExpired
+            // ==============================================================
+            h.Section("2 覆盖槽位");
+
+            RuleRequestResult r2 = sys.Request(AttributeId.Mass, RelationId.Weaken, RuleSource.Player);
+            h.Check("请求成功", r2.Succeeded, r2.Status.ToString());
+            h.Check("覆盖时调用了旧规则的 Clear()", probe.ClearCount == 1, $"ClearCount={probe.ClearCount}");
+            h.Check("覆盖时触发 OnRuleExpired(Mass)",
+                    expired.Count == 1 && expired[0] == AttributeId.Mass,
+                    $"expired=[{string.Join(",", expired)}]");
+            h.Check("槽位换成 Weaken",
+                    sys.Table.IsActive(AttributeId.Mass, RelationId.Weaken), SlotText(sys));
+            h.Check("规则类最后应用的是 Weaken",
+                    probe.LastApplied == RelationId.Weaken, probe.LastApplied.ToString());
+
+            // ==============================================================
+            //  ③ 失败回滚：还原旧槽位，而不是清空
+            // ==============================================================
+            h.Section("3 失败回滚");
+
+            expired.Clear();
+            int clearBefore = probe.ClearCount;
+            int changedBefore = changed;
+            probe.FailNext = true;
+
+            RuleRequestResult r3 = sys.Request(AttributeId.Mass, RelationId.Enhance, RuleSource.Player);
+            h.Check("请求返回失败", !r3.Succeeded, r3.Status.ToString());
+            h.Check("回滚前确实清过旧状态", probe.ClearCount == clearBefore + 1,
+                    $"ClearCount={probe.ClearCount}");
+            h.Check("槽位还原成 Weaken（不是被清空）",
+                    sys.Table.IsActive(AttributeId.Mass, RelationId.Weaken), SlotText(sys));
+            h.Check("回滚重新应用了旧关系",
+                    probe.LastApplied == RelationId.Weaken, probe.LastApplied.ToString());
+            h.Check("回滚不触发 OnRuleExpired（旧规则还在）", expired.Count == 0,
+                    $"expired=[{string.Join(",", expired)}]");
+            // 回滚后净变化为零 —— 状态和请求前一样，就不该广播
+            h.Check("回滚不触发 OnRulesChanged", changed == changedBefore,
+                    $"changed={changed}, 期望 {changedBefore}");
+
+            // ==============================================================
+            //  ④ ClearAll：每个原本活跃的属性各发一次 OnRuleExpired
+            // ==============================================================
+            h.Section("4 ClearAll");
+
+            expired.Clear();
+            sys.ClearAll();
+            h.Check("ClearAll 触发 OnRuleExpired(Mass)",
+                    expired.Count == 1 && expired[0] == AttributeId.Mass,
+                    $"expired=[{string.Join(",", expired)}]");
+            h.Check("ClearAll 后槽位为空", !sys.Table.IsActive(AttributeId.Mass), SlotText(sys));
+            h.Check("ClearAll 调了规则类的 Clear()", probe.ClearCount == clearBefore + 2,
+                    $"ClearCount={probe.ClearCount}");
+            h.Check("ClearAll 触发一次 OnRulesChanged", changed == changedBefore + 1,
+                    $"changed={changed}, 期望 {changedBefore + 1}");
+
+            // ==============================================================
+            //  ⑤ 未定义格位：走不到规则类
+            // ==============================================================
+            h.Section("5 未定义格位");
+
+            int applyBefore = probe.ApplyCount;
+            RuleRequestResult r5 = sys.Request(AttributeId.Mass, RelationId.Revert, RuleSource.Player);
+            // defs 里五个关系都建了，所以这里应该成功；换一个真没定义的属性来测
+            h.Check("目录里有定义的格位能走到规则类", r5.Succeeded, r5.Status.ToString());
+
+            RuleRequestResult r6 = sys.Request(AttributeId.Causality, RelationId.Revert, RuleSource.Player);
+            h.Check("目录里没定义的格位返回 Undefined",
+                    !r6.Succeeded && r6.Status == RuleRequestStatus.Undefined, r6.Status.ToString());
+            h.Check("未定义格位不会碰规则类", probe.ApplyCount == applyBefore + 1,
+                    $"ApplyCount={probe.ApplyCount}");
+
+            RuleSystem.Reset();
+            foreach (RuleDef d in defs) Object.DestroyImmediate(d);
+
+            return h.Report("规则系统契约验证");
+        }
+
+        private static string SlotText(RuleSystem sys)
+        {
+            ActiveRule? slot = sys.Table.GetSlot(AttributeId.Mass);
+            return slot.HasValue ? slot.Value.Relation.ToString() : "(空)";
+        }
+    }
+}

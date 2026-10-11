@@ -134,6 +134,9 @@ namespace RuleGame.Editor.Rules
 
         /// <summary>跑全部属性规则的验证。</summary>
         public static string RunAll()
-            => MassRuleVerifier.Run() + "\n\n" + FrictionRuleVerifier.Run();
+            => MassRuleVerifier.Run()
+             + "\n\n" + FrictionRuleVerifier.Run()
+             + "\n\n" + DamageRuleVerifier.Run()
+             + "\n\n" + RuleSystemVerifier.Run();
     }
 }

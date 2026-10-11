@@ -74,20 +74,47 @@ namespace RuleGame.Core.Rules
             if (!_rules.TryGetValue(attr, out var ruleClass))
                 return RuleRequestResult.Fail(RuleRequestStatus.Undefined);
 
-            // ② 注册（先写状态，让执行期间的查询读到一致数据）
+            // ② 记下旧槽位：覆盖前要清旧状态，失败时要能还原
+            ActiveRule? previous = _table.GetSlot(attr);
+            ActiveRule?[] backup = previous.HasValue ? _table.SnapshotSlots() : null;
+
+            // ③ 覆盖前先让旧关系把世界恢复原样。
+            //    纯写值的规则看不出差别（每次 Request 都会写全自己那几个字段），
+            //    但带外部状态的行为型规则（挂账账本、恒定快照）漏了这步就会泄漏。
+            if (previous.HasValue) ruleClass.Clear();
+
+            // ④ 注册（先写状态，让执行期间的查询读到一致数据）
             _table.Set(attr, rel, def.Duration, source);
 
-            // ③ 执行
+            // ⑤ 执行
             var result = ruleClass.Request(rel);
 
-            // ④ 失败回滚
+            // ⑥ 失败回滚：还原槽位**和**规则类状态，而不是清空。
+            //    清空等于「请求失败反而把原来生效的规则也弄丢了」。
             if (!result.Succeeded)
             {
-                _table.Clear(attr);
+                if (previous.HasValue)
+                {
+                    _table.RestoreSlots(backup);
+                    // 上面 Clear() 已把世界恢复成默认，这里重新应用旧关系盖回去
+                    if (!ruleClass.Request(previous.Value.Relation).Succeeded)
+                    {
+                        UnityEngine.Debug.LogError(
+                            $"[RuleSystem] 回滚 {attr} 到 {previous.Value.Relation} 失败，" +
+                            "该属性的状态可能与规则表不一致。");
+                    }
+                }
+                else
+                {
+                    _table.Clear(attr);
+                    ruleClass.Clear();
+                }
                 return result;
             }
 
-            // ⑤ 广播（状态已写完）
+            // ⑦ 广播（状态已写完）
+            //    旧规则真的没了才报「结束」；失败回滚那条路径上面已经 return 了
+            if (previous.HasValue) OnRuleExpired?.Invoke(attr);
             OnRuleActivated?.Invoke(attr, rel, source);
             OnRulesChanged?.Invoke();
             return result;
@@ -123,10 +150,33 @@ namespace RuleGame.Core.Rules
 
         public void ClearAll()
         {
+            // 先记下哪些属性有规则 —— 清完就读不到了
+            var ended = new List<AttributeId>();
+            foreach (var pair in _table.Slots) ended.Add(pair.Key);
+
             foreach (var rule in _rules.Values) rule.Clear();
             _table.ClearAll();
             _attrs.ResetToDefault();
+
+            // 先写状态，再广播（与 Request 同一条纪律）
+            for (int i = 0; i < ended.Count; i++) OnRuleExpired?.Invoke(ended[i]);
             OnRulesChanged?.Invoke();
+        }
+
+        // ==================================================================
+        //  测试接缝
+        // ==================================================================
+
+        /// <summary>仅测试用：替换某个属性的规则类。</summary>
+        /// <remarks>
+        /// 给验证脚本注入探针用（例如统计 <c>Clear()</c> 被调了几次、
+        /// 或造一个必定失败的规则来验证回滚）。传 null 表示移除。
+        /// 与 <see cref="SetInstanceForTesting"/> 同一个用途。
+        /// </remarks>
+        public void SetRuleForTesting(AttributeId attr, AttributeRuleBase rule)
+        {
+            if (rule == null) _rules.Remove(attr);
+            else _rules[attr] = rule;
         }
 
         public List<string> ExportActiveIds()

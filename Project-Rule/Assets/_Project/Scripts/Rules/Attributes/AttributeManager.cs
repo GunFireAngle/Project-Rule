@@ -22,5 +22,6 @@ namespace RuleGame.Core.Rules
         public void SetDamageScale(float v)   { var x = Values; x.DamageScale   = v; Values = x; }
         public void SetDamageInverted(bool v) { var x = Values; x.DamageInverted = v; Values = x; }
         public void SetDamageDisabled(bool v) { var x = Values; x.DamageDisabled = v; Values = x; }
+        public void SetDamageDeferred(bool v) { var x = Values; x.DamageDeferred = v; Values = x; }
     }
 }

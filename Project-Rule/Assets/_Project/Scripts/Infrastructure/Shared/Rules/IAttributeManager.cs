@@ -19,6 +19,7 @@ namespace RuleGame.Infrastructure.Rules
         void SetDamageScale(float v);
         void SetDamageInverted(bool v);
         void SetDamageDisabled(bool v);
+        void SetDamageDeferred(bool v);
 
         /// <summary>全部恢复默认值。重开关卡 / 规则全清时调用。</summary>
         void ResetToDefault();

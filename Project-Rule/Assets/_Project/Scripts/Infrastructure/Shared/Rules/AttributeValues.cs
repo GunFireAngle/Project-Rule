@@ -48,14 +48,35 @@ namespace RuleGame.Infrastructure.Rules
         /// <summary>伤害失效。</summary>
         public bool DamageDisabled;
 
+        /// <summary>
+        /// 伤害挂账：受到的伤害不立即扣血，先记账。
+        /// </summary>
+        /// <remarks>
+        /// <para>规则矩阵（伤害/生命 × 恒定）：「受到的伤害不立即扣血，先记账；
+        /// 规则结束时一次性结算。窗口内的治疗可抵消挂账（按净额结算）」。</para>
+        ///
+        /// <para>⚠️ <b>规则系统只负责置位这个标志并广播，到此为止。</b>
+        /// 账本、净额结算、结算时机属于**伤害处理模块或承受方自身**——
+        /// 账本是逐实体的，放不进属性规则类（架构 §4.6 的
+        /// 「行为型规则由属性规则类内部实现」在这里不适用）。</para>
+        ///
+        /// <para>结算时机可参考 <c>IRuleSystem.OnRuleExpired</c>：
+        /// 它现在与「某个属性的活跃规则被清掉」一一对应
+        /// （超时 / 被覆盖 / <c>ClearAll</c>；快照恢复是唯一例外）。</para>
+        /// </remarks>
+        public bool DamageDeferred;
+
         /// <summary>默认值（全部正常）。</summary>
         public static AttributeValues Default => new AttributeValues
         {
             FrictionScale    = 1f,
             FrictionInverted = false,
             MassScale        = 1f,
-            MassInverted  = false,
-            DamageScale   = 1f,
+            MassInverted     = false,
+            DamageScale      = 1f,
+            DamageInverted   = false,
+            DamageDisabled   = false,
+            DamageDeferred   = false,
         };
     }
 }
