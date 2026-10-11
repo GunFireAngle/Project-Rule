@@ -3,7 +3,7 @@ using RuleGame.Infrastructure.Rules;
 namespace RuleGame.Core.Rules
 {
     /// <summary>
-    /// 属性规则类基类。7 个属性各实现一个。
+    /// 属性规则类基类。6 个属性各实现一个。
     /// </summary>
     /// <remarks>
     /// <para>基类**不设 AttributeId 属性** —— 类名本身就是标识。</para>

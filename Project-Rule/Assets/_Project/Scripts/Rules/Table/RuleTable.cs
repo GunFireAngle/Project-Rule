@@ -5,13 +5,13 @@ using RuleGame.Infrastructure.Rules;
 namespace RuleGame.Core.Rules
 {
     /// <summary>
-    /// 规则维护表：7 个固定槽位，每属性一个。
+    /// 规则维护表：6 个固定槽位，每属性一个。
     /// 同时是**规则剩余时间的唯一持有者**。
     /// </summary>
     public class RuleTable : IRuleTable
     {
         /// <summary>槽位数 = AttributeId 的成员数。</summary>
-        private const int SlotCount = 7;
+        private const int SlotCount = 6;
 
         private readonly ActiveRule?[] _slots = new ActiveRule?[SlotCount];
         private readonly Dictionary<AttributeId, ActiveRule> _readonlyView = new();
