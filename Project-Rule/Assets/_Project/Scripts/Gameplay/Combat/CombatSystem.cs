@@ -52,11 +52,14 @@ namespace RuleGame.Gameplay.Combat
         /// <summary>
         /// 在指定矩形范围内做一次攻击判定，对命中的每个 <see cref="IDamageable"/> 施加伤害。
         /// </summary>
-        /// <returns>实际被施加伤害的目标数。</returns>
+        /// <returns>实际被施加伤害的目标数；<b>0 表示这一击打空</b>（伤害失效规则生效）。</returns>
         public int PerformAttack(object attacker, Vector2 center, Vector2 size, LayerMask mask,
                                  float baseDamage, float knockback)
         {
             float amount = ResolveAttackAmount(baseDamage);
+
+            // 伤害失效（缩放后为 0）：不命中、不广播 —— 否则 VFX / 音效会在无敌的敌人身上照放。
+            if (Mathf.Approximately(amount, 0f)) return 0;
 
             var filter = new ContactFilter2D { useTriggers = false };
             filter.SetLayerMask(mask);
@@ -79,6 +82,9 @@ namespace RuleGame.Gameplay.Combat
         /// <summary>对单个已知目标施加伤害。也供「已知目标」的场合直接调用。</summary>
         public void ApplyDamage(object attacker, IDamageable target, float amount, float knockback)
         {
+            // 0 伤害不产生任何东西：不结算、不广播。
+            if (Mathf.Approximately(amount, 0f)) return;
+
             var info = new DamageInfo
             {
                 Attacker  = attacker,

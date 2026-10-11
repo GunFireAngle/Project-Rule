@@ -15,6 +15,16 @@ namespace RuleGame.Core.Rules
         [Tooltip("规则目录资产，放在 Assets/_Project/Data/Rules/")]
         [SerializeField] private RuleCatalog _catalog;
 
+        /// <summary>暂停中。规则倒计时与行为型规则都不前进。</summary>
+        /// <remarks>
+        /// ⚠️ 暂停**不能**用 <c>Time.timeScale = 0</c>（策划案 §3.1），所以 <c>Time.deltaTime</c>
+        /// 在暂停期间照常流逝 —— 只能靠这个显式闸门冻结。由暂停的持有者（P1 的时间管理器）调用。
+        /// </remarks>
+        public bool IsPaused { get; private set; }
+
+        /// <summary>设置暂停状态。与 <c>EntityStatus.SetPaused</c> 同一套约定。</summary>
+        public void SetPaused(bool paused) => IsPaused = paused;
+
         private void Awake()
         {
             if (_catalog == null)
@@ -27,7 +37,7 @@ namespace RuleGame.Core.Rules
 
         private void Update()
         {
-            // 用 deltaTime：暂停时自动冻结
+            if (IsPaused) return;      // 暂停：规则时限不流逝
             RuleSystem.Instance?.Tick(Time.deltaTime);
         }
 

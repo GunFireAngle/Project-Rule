@@ -11,8 +11,10 @@ namespace RuleGame.Gameplay.Player
     /// </summary>
     /// <remarks>
     /// <para>敌人可复用本类，或另写一个实现 —— 只要满足 <see cref="IEntityStatus"/> 即可。</para>
-    /// <para><b>冷却用 <c>Time.deltaTime</c> 计时</b>（架构决策 D12）：
-    /// <c>Time.timeScale</c> 归零时自动冻结，无需单独判断暂停。</para>
+    /// <para><b>冷却用 <c>Time.deltaTime</c> 计时</b>，但<b>不能靠它自动冻结</b>：
+    /// 策划案禁止用 <c>Time.timeScale = 0</c> 做暂停（取消暂停时会瞬移穿碰撞体），
+    /// 所以暂停期间 <c>deltaTime</c> 照常流逝。冻结改由 <see cref="SetPaused"/> 显式控制 ——
+    /// 暂停的持有者（P1 的时间管理器）负责调用它。</para>
     /// </remarks>
     public class EntityStatus : MonoBehaviour, IEntityStatus
     {
@@ -44,6 +46,20 @@ namespace RuleGame.Gameplay.Player
 
         public object HeldItem       => _heldItem;
         public int    ThrowableCount => _throwableCount;
+
+        // ==================================================================
+        //  暂停
+        // ==================================================================
+
+        /// <summary>暂停中。冷却与其它按帧推进的状态都不前进。</summary>
+        public bool IsPaused { get; private set; }
+
+        /// <summary>
+        /// 设置暂停状态。由暂停的持有者调用 —— 拼装界面暂停时 P1 的时间管理器会走到这里。
+        /// </summary>
+        /// <remarks>不在 <see cref="IEntityStatus"/> 契约里：接口冻结时暂停还假定由
+        /// <c>Time.timeScale = 0</c> 自动完成，那条路已被策划案否掉。<b>待团队确认后并入冻结文档。</b></remarks>
+        public void SetPaused(bool paused) => IsPaused = paused;
 
         // 冷却：按 属性 × 关系 索引，值 = 剩余秒数
         private readonly Dictionary<(AttributeId, RelationId), float> _cooldowns = new();
@@ -114,9 +130,10 @@ namespace RuleGame.Gameplay.Player
 
         private void Update()
         {
+            if (IsPaused) return;                    // 暂停：冷却不前进
             if (_cooldowns.Count == 0) return;
 
-            float dt = Time.deltaTime;               // 暂停（timeScale=0）时自动为 0
+            float dt = Time.deltaTime;
             if (dt <= 0f) return;
 
             // 先拷 key 再改，避免遍历字典时修改
@@ -151,6 +168,8 @@ namespace RuleGame.Gameplay.Player
             _health         = Mathf.Clamp(data.Health, 0f, _healthMax);
             _heldItem       = data.HeldItem;
             _throwableCount = data.ThrowableCount;
+
+            _cooldowns.Clear();     // 冷却不进存档 / 快照，回滚后不该带着「未来的冷却」
 
             OnEnergyChanged?.Invoke(_energy, _energyMax);
             OnHealthChanged?.Invoke(_health, _healthMax);

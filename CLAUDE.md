@@ -83,15 +83,22 @@
 | **P3** | 玩家 + 战斗（移动、状态含能量、规则释放入口、伤害结算、命中判定） | Gameplay |
 | **P4** | 敌人 + 场景叙事 + UI | Gameplay · UI |
 
-## 当前进度（截至 2026-10-10）
+## 当前进度（截至 2026-10-11）
 
 - ✅ 规则系统核心（`RuleSystem` / `RuleTable` / `AttributeManager`），重力属性端到端跑通
 - ✅ 规则接口层下沉到 `Infrastructure/Shared/Rules/`（v3.0 冻结）
-- ✅ P3：`IEntityStatus` / `EntityStatus`、`RuleReleaseService`、`DamageRule`、`DamageInfo` / `IDamageable`、`CombatSystem`、`PlayerController`
+- ✅ P3：`IEntityStatus` / `EntityStatus`、`RuleReleaseService`、`DamageRule`、`DamageInfo` / `IDamageable`、`CombatSystem`、`PlayerController`、`EntityDamageable` / `IKnockbackReceiver`
 - ✅ P4：白盒 HUD、规则拼装 demo、五种重力接入（`Scenes/Level_01.unity`）
-- ⚠️ `RuleCatalog.asset` 目前只接了 `GravityRevert` 一条规则，其余 RuleDef 资产未接
-- ⚠️ `PlayerController` 用 **Dynamic 刚体 + `gravityScale = 0`**（自己读 `Physics2D.gravity`），
-  **未用**架构文档 D1 的 Kinematic —— 官方文档确认 Kinematic 与静态地形无碰撞响应（会穿透）
+- ⚠️ **P3 的组件还没有接进任何场景**（`Level_01.unity` 目前只有 P4 的 demo 控制器）。
+  想验证玩法得先接线，接线前请注意下面两条
+- ⚠️ `RuleCatalog.asset` 已接 `GravityRevert` + 4 条伤害规则（反转 / 失效 / 增强 / 削弱）；
+  其余重力 RuleDef 资产仍未接
+- ⚠️ `PlayerController` 按 D1 用 **Kinematic 刚体**：位移走 `Rigidbody2D.Slide` 解算接触，
+  重力自己读 `Physics2D.gravity` 积分。`MovePosition` 自身不做碰撞，**不要绕开 Slide 直接移动**
+- ⚠️ **暂停不能用 `Time.timeScale = 0`**（策划案 §3.1）。冷却等按帧推进的状态改由
+  `EntityStatus.SetPaused` 显式冻结 —— 架构文档 D12 的旧说法「暂停自动冻结」已作废
+- ⚠️ 「关系」属性已从策划案删除，但 `AttributeId.Relation` 保留枚举位（顺序 = 槽位下标）；
+  `Doc/规则矩阵.json` 与架构 D5 的「7 属性 / 35 格」尚未同步 —— **由 P2 接手**
 
 ## 提交约定
 
