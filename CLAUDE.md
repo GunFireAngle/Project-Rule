@@ -91,8 +91,8 @@
 - ✅ P4：白盒 HUD、规则拼装 demo、五种重力接入（`Scenes/Level_01.unity`）
 - ⚠️ **P3 的组件还没有接进任何场景**（`Level_01.unity` 目前只有 P4 的 demo 控制器）。
   想验证玩法得先接线，接线前请注意下面两条
-- ⚠️ `RuleCatalog.asset` 已接 **5 条重力 + 5 条质量 + 4 条伤害**规则；
-  5 条 `Friction*` 资产**还没接进目录**（要生效得先在 RuleCatalog 里挂上）
+- ✅ `RuleCatalog.asset` 已接 **19 条**规则：5 重力 + 5 摩擦 + 5 质量 + 4 伤害（覆盖 4 个属性）；
+  时间 / 因果两个属性的规则类尚未实现
 - ⚠️ `PlayerController` 按 D1 用 **Kinematic 刚体**：位移走 `Rigidbody2D.Slide` 解算接触，
   重力自己读 `Physics2D.gravity` 积分。`MovePosition` 自身不做碰撞，**不要绕开 Slide 直接移动**
 - ⚠️ **暂停不能用 `Time.timeScale = 0`**（策划案 §3.1）。冷却等按帧推进的状态改由
